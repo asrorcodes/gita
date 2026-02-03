@@ -1,8 +1,9 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from "axios";
 
-// Production (Vercel): use same-origin proxy to avoid CORS / strict-origin. Set NEXT_PUBLIC_API_URL=/api/v1
+// Use relative path by default so HTTPS pages (e.g. Vercel) avoid Mixed Content.
+// next.config.mjs rewrites /api/v1/* to the backend. Override with NEXT_PUBLIC_API_URL if needed.
 const BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL ?? "http://89.117.53.108:8081/v1";
+  process.env.NEXT_PUBLIC_API_URL ?? "/api/v1";
 
 export const api = axios.create({
   baseURL: BASE_URL,
