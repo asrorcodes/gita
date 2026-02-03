@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { isAuthenticated, logout } from "@/shared/lib/auth";
 import { useAuthStore } from "@/app/login/slices/authSlice";
 import { useOpenSidebar } from "@/app/dashboard/DashboardLayoutContext";
@@ -11,6 +12,7 @@ import { studentsApi } from "@/shared/api/studentsApi";
 import { groupsApi } from "@/shared/api/groupsApi";
 import { coursesApi } from "@/shared/api/coursesApi";
 import { studentGroupsApi } from "@/shared/api/studentGroupsApi";
+import { queryKeys } from "@/shared/query-keys";
 import AddStudentForm from "@/features/add-student/ui/AddStudentForm";
 import type { ApiStudent, ApiStudentGroup } from "@/shared/types/api";
 
@@ -32,17 +34,79 @@ function defaultExpiredAt(): string {
 
 export default function StudentsPage() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const openSidebar = useOpenSidebar();
   const [mounted, setMounted] = useState(false);
-  const [allStudents, setAllStudents] = useState<ApiStudent[]>([]);
-  const [assignments, setAssignments] = useState<ApiStudentGroup[]>([]);
-  const [groupOptions, setGroupOptions] = useState<GroupOption[]>([]);
-  const [loading, setLoading] = useState(true);
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [assignModalStudent, setAssignModalStudent] = useState<ApiStudent | null>(null);
   const [assignGroupId, setAssignGroupId] = useState<string>("");
-  const [assignSubmitting, setAssignSubmitting] = useState(false);
   const [assignError, setAssignError] = useState("");
+
+  const { data: allStudents = [], isLoading: loading } = useQuery({
+    queryKey: queryKeys.students(),
+    queryFn: async () => {
+      const res = await studentsApi.getList();
+      return res.data.data ?? [];
+    },
+  });
+
+  const { data: assignments = [] } = useQuery({
+    queryKey: queryKeys.studentGroups(),
+    queryFn: async () => {
+      const res = await studentGroupsApi.getList();
+      return res.data.data ?? [];
+    },
+  });
+
+  const { data: courses = [] } = useQuery({
+    queryKey: queryKeys.courses,
+    queryFn: async () => {
+      const res = await coursesApi.getList();
+      return res.data.data ?? [];
+    },
+  });
+
+  const { data: groups = [] } = useQuery({
+    queryKey: queryKeys.groups(),
+    queryFn: async () => {
+      const res = await groupsApi.getList();
+      return res.data.data ?? [];
+    },
+  });
+
+  const groupOptions: GroupOption[] = useMemo(
+    () =>
+      groups.map((g) => ({
+        id: g.id,
+        name: g.name,
+        courseId: g.courseId,
+        courseName:
+          courses.find((c) => c.id === g.courseId)?.name ?? `Kurs #${g.courseId}`,
+      })),
+    [groups, courses]
+  );
+
+  const assignMutation = useMutation({
+    mutationFn: (payload: {
+      studentId: number;
+      groupId: number;
+      expiredAt: string;
+      userId: number | null;
+    }) => studentGroupsApi.create(payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.studentGroups() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.students() });
+      closeAssignModal();
+    },
+    onError: (err: unknown) => {
+      const msg =
+        err && typeof err === "object" && "response" in err
+          ? (err as { response?: { data?: { message?: string } } }).response?.data
+              ?.message
+          : null;
+      setAssignError(msg ?? "Xatolik yuz berdi");
+    },
+  });
 
   const ungroupedStudents = allStudents.filter(
     (s) => !assignments.some((a) => a.studentId === s.id)
@@ -54,41 +118,6 @@ export default function StudentsPage() {
       router.push("/login");
     }
   }, [router]);
-
-  const loadData = () => {
-    setLoading(true);
-    Promise.all([
-      studentsApi.getList(),
-      studentGroupsApi.getList(),
-      coursesApi.getList(),
-      groupsApi.getList(),
-    ])
-      .then(([studentsRes, assignmentsRes, coursesRes, groupsRes]) => {
-        setAllStudents(studentsRes.data.data ?? []);
-        setAssignments(assignmentsRes.data.data ?? []);
-        const courses = coursesRes.data.data ?? [];
-        const groups = groupsRes.data.data ?? [];
-        setGroupOptions(
-          groups.map((g) => ({
-            id: g.id,
-            name: g.name,
-            courseId: g.courseId,
-            courseName:
-              courses.find((c) => c.id === g.courseId)?.name ?? `Kurs #${g.courseId}`,
-          }))
-        );
-      })
-      .catch(() => {
-        setAllStudents([]);
-        setAssignments([]);
-        setGroupOptions([]);
-      })
-      .finally(() => setLoading(false));
-  };
-
-  useEffect(() => {
-    loadData();
-  }, []);
 
   const clearAuth = useAuthStore((s) => s.clearAuth);
   const handleLogout = () => {
@@ -109,30 +138,16 @@ export default function StudentsPage() {
     setAssignError("");
   };
 
-  const handleAssignSubmit = async (e: React.FormEvent) => {
+  const handleAssignSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!assignModalStudent || !assignGroupId) return;
     setAssignError("");
-    setAssignSubmitting(true);
-    try {
-      await studentGroupsApi.create({
-        studentId: assignModalStudent.id,
-        groupId: Number(assignGroupId),
-        expiredAt: defaultExpiredAt(),
-        userId: null,
-      });
-      loadData();
-      closeAssignModal();
-    } catch (err: unknown) {
-      const msg =
-        err && typeof err === "object" && "response" in err
-          ? (err as { response?: { data?: { message?: string } } }).response?.data
-              ?.message
-          : null;
-      setAssignError(msg ?? "Xatolik yuz berdi");
-    } finally {
-      setAssignSubmitting(false);
-    }
+    assignMutation.mutate({
+      studentId: assignModalStudent.id,
+      groupId: Number(assignGroupId),
+      expiredAt: defaultExpiredAt(),
+      userId: null,
+    });
   };
 
   if (!mounted) return null;
@@ -243,7 +258,9 @@ export default function StudentsPage() {
           >
             <AddStudentForm
               onClose={() => setAddModalOpen(false)}
-              onAdd={() => loadData()}
+              onAdd={() => {
+                queryClient.invalidateQueries({ queryKey: queryKeys.students() });
+              }}
             />
           </div>
         </div>
@@ -307,11 +324,11 @@ export default function StudentsPage() {
                 </button>
                 <button
                   type="submit"
-                  disabled={assignSubmitting}
+                  disabled={assignMutation.isPending}
                   className="flex-1 px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium disabled:opacity-60 flex items-center justify-center gap-2"
                 >
                   <UserPlus className="w-4 h-4" />
-                  {assignSubmitting ? "Biriktirilmoqda..." : "Biriktirish"}
+                  {assignMutation.isPending ? "Biriktirilmoqda..." : "Biriktirish"}
                 </button>
               </div>
             </form>

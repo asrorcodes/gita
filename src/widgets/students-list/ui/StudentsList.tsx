@@ -1,36 +1,33 @@
 "use client";
 
-import { useState, useEffect, memo } from "react";
+import { memo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Group } from "@/shared/types";
 import { User } from "lucide-react";
 import { studentsApi } from "@/shared/api/studentsApi";
-import type { ApiStudent } from "@/shared/types/api";
+import { queryKeys } from "@/shared/query-keys";
 
 interface StudentsListProps {
   group: Group | null;
 }
 
 function StudentsListInner({ group }: StudentsListProps) {
-  const [students, setStudents] = useState<ApiStudent[]>([]);
-  const [loading, setLoading] = useState(false);
+  const groupId =
+    group?.id != null
+      ? typeof group.id === "number"
+        ? group.id
+        : parseInt(String(group.id), 10)
+      : undefined;
+  const validGroupId = groupId != null && !Number.isNaN(groupId) ? groupId : undefined;
 
-  useEffect(() => {
-    if (!group?.id) {
-      setStudents([]);
-      return;
-    }
-    const groupId = typeof group.id === "number" ? group.id : parseInt(String(group.id), 10);
-    if (Number.isNaN(groupId)) {
-      setStudents([]);
-      return;
-    }
-    setLoading(true);
-    studentsApi
-      .getList(groupId)
-      .then((res) => setStudents(res.data.data ?? []))
-      .catch(() => setStudents([]))
-      .finally(() => setLoading(false));
-  }, [group?.id]);
+  const { data: students = [], isLoading: loading } = useQuery({
+    queryKey: queryKeys.students(validGroupId),
+    queryFn: async () => {
+      const res = await studentsApi.getList(validGroupId);
+      return res.data.data ?? [];
+    },
+    enabled: validGroupId != null,
+  });
 
   if (!group) {
     return (

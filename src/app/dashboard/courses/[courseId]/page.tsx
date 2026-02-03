@@ -1,13 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import { isAuthenticated, logout } from "@/shared/lib/auth";
 import { useAuthStore } from "@/app/login/slices/authSlice";
 import { useOpenSidebar } from "@/app/dashboard/DashboardLayoutContext";
 import { LogOut, Menu } from "lucide-react";
 import { coursesApi } from "@/shared/api/coursesApi";
 import { groupsApi } from "@/shared/api/groupsApi";
+import { queryKeys } from "@/shared/query-keys";
 import type { ApiCourse } from "@/shared/types/api";
 
 export default function CoursePage() {
@@ -16,9 +18,30 @@ export default function CoursePage() {
   const courseId = params?.courseId as string;
   const openSidebar = useOpenSidebar();
   const [mounted, setMounted] = useState(false);
-  const [course, setCourse] = useState<ApiCourse | null>(null);
-  const [groups, setGroups] = useState<{ id: number; name: string; courseId: number; teacherId: number }[]>([]);
-  const [loading, setLoading] = useState(true);
+  const cId = courseId ? parseInt(courseId, 10) : NaN;
+  const validCourseId = Number.isNaN(cId) ? undefined : cId;
+
+  const { data: courses = [] } = useQuery({
+    queryKey: queryKeys.courses,
+    queryFn: async () => {
+      const res = await coursesApi.getList();
+      return res.data.data ?? [];
+    },
+  });
+
+  const { data: groups = [], isLoading: loading } = useQuery({
+    queryKey: queryKeys.groups(validCourseId),
+    queryFn: async () => {
+      const res = await groupsApi.getList(validCourseId);
+      return res.data.data ?? [];
+    },
+    enabled: validCourseId != null,
+  });
+
+  const course: ApiCourse | null = useMemo(
+    () => (validCourseId != null ? courses.find((c) => c.id === validCourseId) ?? null : null),
+    [courses, validCourseId]
+  );
 
   useEffect(() => {
     setMounted(true);
@@ -26,26 +49,6 @@ export default function CoursePage() {
       router.push("/login");
     }
   }, [router]);
-
-  useEffect(() => {
-    if (!courseId) return;
-    const cId = parseInt(courseId, 10);
-    if (Number.isNaN(cId)) return;
-    coursesApi
-      .getList()
-      .then((res) => {
-        const found = (res.data.data ?? []).find((c) => c.id === cId);
-        setCourse(found ?? null);
-      })
-      .catch(() => setCourse(null));
-    groupsApi
-      .getList(cId)
-      .then((res) => {
-        setGroups(res.data.data ?? []);
-      })
-      .catch(() => setGroups([]))
-      .finally(() => setLoading(false));
-  }, [courseId]);
 
   const clearAuth = useAuthStore((s) => s.clearAuth);
   const handleLogout = () => {

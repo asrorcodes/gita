@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { isAuthenticated, logout } from "@/shared/lib/auth";
 import { useAuthStore } from "@/app/login/slices/authSlice";
 import { useOpenSidebar } from "@/app/dashboard/DashboardLayoutContext";
@@ -19,6 +20,7 @@ import {
 import Link from "next/link";
 import { lessonPackagesApi } from "@/shared/api/lessonPackagesApi";
 import { lessonsApi } from "@/shared/api/lessonsApi";
+import { queryKeys } from "@/shared/query-keys";
 import type {
   ApiLessonPackage,
   ApiLesson,
@@ -26,19 +28,15 @@ import type {
 
 export default function LessonsPage() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const openSidebar = useOpenSidebar();
   const [mounted, setMounted] = useState(false);
-  const [packages, setPackages] = useState<ApiLessonPackage[]>([]);
-  const [lessons, setLessons] = useState<ApiLesson[]>([]);
-  const [loadingPackages, setLoadingPackages] = useState(true);
-  const [loadingLessons, setLoadingLessons] = useState(true);
   const [packageFilterId, setPackageFilterId] = useState<number | "">("");
 
   // Package form
   const [packageFormOpen, setPackageFormOpen] = useState(false);
   const [packageEditingId, setPackageEditingId] = useState<number | null>(null);
   const [packageName, setPackageName] = useState("");
-  const [packageSubmitting, setPackageSubmitting] = useState(false);
   const [packageError, setPackageError] = useState("");
 
   // Lesson form
@@ -46,8 +44,85 @@ export default function LessonsPage() {
   const [lessonEditingId, setLessonEditingId] = useState<number | null>(null);
   const [lessonName, setLessonName] = useState("");
   const [lessonPackageId, setLessonPackageId] = useState<number | "">("");
-  const [lessonSubmitting, setLessonSubmitting] = useState(false);
   const [lessonError, setLessonError] = useState("");
+
+  const { data: packages = [], isLoading: loadingPackages } = useQuery({
+    queryKey: queryKeys.lessonPackages,
+    queryFn: async () => {
+      const res = await lessonPackagesApi.getList();
+      return res.data.data ?? [];
+    },
+  });
+
+  const { data: lessons = [], isLoading: loadingLessons } = useQuery({
+    queryKey: queryKeys.lessons(),
+    queryFn: async () => {
+      const res = await lessonsApi.getList();
+      return res.data.data ?? [];
+    },
+  });
+
+  const savePackageMutation = useMutation({
+    mutationFn: async ({
+      id,
+      name,
+    }: { id: number | null; name: string }) => {
+      if (id != null) return lessonPackagesApi.update(id, { name });
+      return lessonPackagesApi.create({ name });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.lessonPackages });
+      setPackageFormOpen(false);
+    },
+    onError: (err: unknown) => {
+      const msg =
+        err && typeof err === "object" && "response" in err
+          ? (err as { response?: { data?: { message?: string } } }).response?.data
+              ?.message
+          : null;
+      setPackageError(msg ?? "Xatolik yuz berdi");
+    },
+  });
+
+  const deletePackageMutation = useMutation({
+    mutationFn: (id: number) => lessonPackagesApi.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.lessonPackages });
+      queryClient.invalidateQueries({ queryKey: queryKeys.lessons() });
+    },
+  });
+
+  const saveLessonMutation = useMutation({
+    mutationFn: async ({
+      id,
+      payload,
+    }: {
+      id: number | null;
+      payload: { name: string; packageId: number };
+    }) => {
+      if (id != null) return lessonsApi.update(id, payload);
+      return lessonsApi.create(payload);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.lessons() });
+      setLessonFormOpen(false);
+    },
+    onError: (err: unknown) => {
+      const msg =
+        err && typeof err === "object" && "response" in err
+          ? (err as { response?: { data?: { message?: string } } }).response?.data
+              ?.message
+          : null;
+      setLessonError(msg ?? "Xatolik yuz berdi");
+    },
+  });
+
+  const deleteLessonMutation = useMutation({
+    mutationFn: (id: number) => lessonsApi.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.lessons() });
+    },
+  });
 
   useEffect(() => {
     setMounted(true);
@@ -55,29 +130,6 @@ export default function LessonsPage() {
       router.push("/login");
     }
   }, [router]);
-
-  const loadPackages = () => {
-    setLoadingPackages(true);
-    lessonPackagesApi
-      .getList()
-      .then((res) => setPackages(res.data.data ?? []))
-      .catch(() => setPackages([]))
-      .finally(() => setLoadingPackages(false));
-  };
-
-  const loadLessons = () => {
-    setLoadingLessons(true);
-    lessonsApi
-      .getList()
-      .then((res) => setLessons(res.data.data ?? []))
-      .catch(() => setLessons([]))
-      .finally(() => setLoadingLessons(false));
-  };
-
-  useEffect(() => {
-    loadPackages();
-    loadLessons();
-  }, []);
 
   const clearAuth = useAuthStore((s) => s.clearAuth);
   const handleLogout = () => {
@@ -109,43 +161,21 @@ export default function LessonsPage() {
     setPackageFormOpen(true);
   };
 
-  const handlePackageSubmit = async (e: React.FormEvent) => {
+  const handlePackageSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setPackageError("");
     if (!packageName.trim()) {
       setPackageError("Paket nomini kiriting");
       return;
     }
-    setPackageSubmitting(true);
-    try {
-      if (packageEditingId != null) {
-        await lessonPackagesApi.update(packageEditingId, { name: packageName.trim() });
-      } else {
-        await lessonPackagesApi.create({ name: packageName.trim() });
-      }
-      loadPackages();
-      setPackageFormOpen(false);
-    } catch (err: unknown) {
-      const msg =
-        err && typeof err === "object" && "response" in err
-          ? (err as { response?: { data?: { message?: string } } }).response?.data
-              ?.message
-          : null;
-      setPackageError(msg ?? "Xatolik yuz berdi");
-    } finally {
-      setPackageSubmitting(false);
-    }
+    savePackageMutation.mutate({ id: packageEditingId, name: packageName.trim() });
   };
 
-  const handlePackageDelete = async (id: number) => {
+  const handlePackageDelete = (id: number) => {
     if (!confirm("Dars paketini o'chirishni xohlaysizmi?")) return;
-    try {
-      await lessonPackagesApi.delete(id);
-      loadPackages();
-      loadLessons();
-    } catch {
-      alert("O'chirib bo'lmadi");
-    }
+    deletePackageMutation.mutate(id, {
+      onError: () => alert("O'chirib bo'lmadi"),
+    });
   };
 
   // ——— Lesson CRUD ———
@@ -165,48 +195,27 @@ export default function LessonsPage() {
     setLessonFormOpen(true);
   };
 
-  const handleLessonSubmit = async (e: React.FormEvent) => {
+  const handleLessonSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setLessonError("");
     if (!lessonName.trim() || lessonPackageId === "") {
       setLessonError("Barcha maydonlarni to'ldiring");
       return;
     }
-    setLessonSubmitting(true);
-    try {
-      if (lessonEditingId != null) {
-        await lessonsApi.update(lessonEditingId, {
-          name: lessonName.trim(),
-          packageId: lessonPackageId as number,
-        });
-      } else {
-        await lessonsApi.create({
-          name: lessonName.trim(),
-          packageId: lessonPackageId as number,
-        });
-      }
-      loadLessons();
-      setLessonFormOpen(false);
-    } catch (err: unknown) {
-      const msg =
-        err && typeof err === "object" && "response" in err
-          ? (err as { response?: { data?: { message?: string } } }).response?.data
-              ?.message
-          : null;
-      setLessonError(msg ?? "Xatolik yuz berdi");
-    } finally {
-      setLessonSubmitting(false);
-    }
+    saveLessonMutation.mutate({
+      id: lessonEditingId,
+      payload: {
+        name: lessonName.trim(),
+        packageId: lessonPackageId as number,
+      },
+    });
   };
 
-  const handleLessonDelete = async (id: number) => {
+  const handleLessonDelete = (id: number) => {
     if (!confirm("Darsni o'chirishni xohlaysizmi?")) return;
-    try {
-      await lessonsApi.delete(id);
-      loadLessons();
-    } catch {
-      alert("O'chirib bo'lmadi");
-    }
+    deleteLessonMutation.mutate(id, {
+      onError: () => alert("O'chirib bo'lmadi"),
+    });
   };
 
   if (!mounted) return null;
@@ -439,10 +448,10 @@ export default function LessonsPage() {
                 </button>
                 <button
                   type="submit"
-                  disabled={packageSubmitting}
+                  disabled={savePackageMutation.isPending}
                   className="flex-1 px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium disabled:opacity-60"
                 >
-                  {packageSubmitting ? "Saqlanmoqda..." : packageEditingId != null ? "Saqlash" : "Qo'shish"}
+                  {savePackageMutation.isPending ? "Saqlanmoqda..." : packageEditingId != null ? "Saqlash" : "Qo'shish"}
                 </button>
               </div>
             </form>
@@ -521,10 +530,10 @@ export default function LessonsPage() {
                 </button>
                 <button
                   type="submit"
-                  disabled={lessonSubmitting}
+                  disabled={saveLessonMutation.isPending}
                   className="flex-1 px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium disabled:opacity-60"
                 >
-                  {lessonSubmitting ? "Saqlanmoqda..." : lessonEditingId != null ? "Saqlash" : "Qo'shish"}
+                  {saveLessonMutation.isPending ? "Saqlanmoqda..." : lessonEditingId != null ? "Saqlash" : "Qo'shish"}
                 </button>
               </div>
             </form>

@@ -2,27 +2,69 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { isAuthenticated, logout } from "@/shared/lib/auth";
 import { useAuthStore } from "@/app/login/slices/authSlice";
 import { useOpenSidebar } from "@/app/dashboard/DashboardLayoutContext";
 import { LogOut, Menu, Plus, Pencil, Trash2, ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { teachersApi } from "@/shared/api/teachersApi";
+import { queryKeys } from "@/shared/query-keys";
 import type { ApiTeacher } from "@/shared/types/api";
 
 export default function TeachersManagementPage() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const openSidebar = useOpenSidebar();
   const [mounted, setMounted] = useState(false);
-  const [teachers, setTeachers] = useState<ApiTeacher[]>([]);
-  const [loading, setLoading] = useState(true);
   const [formOpen, setFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [login, setLogin] = useState("");
-  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+
+  const { data: teachers = [], isLoading: loading } = useQuery({
+    queryKey: queryKeys.teachers,
+    queryFn: async () => {
+      const res = await teachersApi.getList();
+      return res.data.data ?? [];
+    },
+  });
+
+  const createOrUpdateMutation = useMutation({
+    mutationFn: async ({
+      id,
+      payload,
+    }: {
+      id: number | null;
+      payload: { firstName: string; lastName: string; login: string };
+    }) => {
+      if (id != null) {
+        return teachersApi.update(id, payload);
+      }
+      return teachersApi.create(payload);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.teachers });
+      setFormOpen(false);
+    },
+    onError: (err: unknown) => {
+      const msg =
+        err && typeof err === "object" && "response" in err
+          ? (err as { response?: { data?: { message?: string } } }).response?.data
+              ?.message
+          : null;
+      setError(msg ?? "Xatolik yuz berdi");
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => teachersApi.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.teachers });
+    },
+  });
 
   useEffect(() => {
     setMounted(true);
@@ -30,19 +72,6 @@ export default function TeachersManagementPage() {
       router.push("/login");
     }
   }, [router]);
-
-  const loadTeachers = () => {
-    setLoading(true);
-    teachersApi
-      .getList()
-      .then((res) => setTeachers(res.data.data ?? []))
-      .catch(() => setTeachers([]))
-      .finally(() => setLoading(false));
-  };
-
-  useEffect(() => {
-    loadTeachers();
-  }, []);
 
   const clearAuth = useAuthStore((s) => s.clearAuth);
   const handleLogout = () => {
@@ -69,50 +98,28 @@ export default function TeachersManagementPage() {
     setFormOpen(true);
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     if (!firstName.trim() || !lastName.trim() || !login.trim()) {
       setError("Barcha maydonlarni to'ldiring");
       return;
     }
-    setSubmitting(true);
-    try {
-      if (editingId != null) {
-        await teachersApi.update(editingId, {
-          firstName: firstName.trim(),
-          lastName: lastName.trim(),
-          login: login.trim(),
-        });
-      } else {
-        await teachersApi.create({
-          firstName: firstName.trim(),
-          lastName: lastName.trim(),
-          login: login.trim(),
-        });
-      }
-      loadTeachers();
-      setFormOpen(false);
-    } catch (err: unknown) {
-      const msg =
-        err && typeof err === "object" && "response" in err
-          ? (err as { response?: { data?: { message?: string } } }).response?.data
-              ?.message
-          : null;
-      setError(msg ?? "Xatolik yuz berdi");
-    } finally {
-      setSubmitting(false);
-    }
+    createOrUpdateMutation.mutate({
+      id: editingId,
+      payload: {
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        login: login.trim(),
+      },
+    });
   };
 
-  const handleDelete = async (id: number) => {
+  const handleDelete = (id: number) => {
     if (!confirm("O'qituvchini o'chirishni xohlaysizmi?")) return;
-    try {
-      await teachersApi.delete(id);
-      loadTeachers();
-    } catch {
-      alert("O'chirib bo'lmadi");
-    }
+    deleteMutation.mutate(id, {
+      onError: () => alert("O'chirib bo'lmadi"),
+    });
   };
 
   if (!mounted) return null;
@@ -268,10 +275,10 @@ export default function TeachersManagementPage() {
                       </button>
                       <button
                         type="submit"
-                        disabled={submitting}
+                        disabled={createOrUpdateMutation.isPending}
                         className="flex-1 px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium disabled:opacity-60"
                       >
-                        {submitting ? "Saqlanmoqda..." : editingId != null ? "Saqlash" : "Qo'shish"}
+                        {createOrUpdateMutation.isPending ? "Saqlanmoqda..." : editingId != null ? "Saqlash" : "Qo'shish"}
                       </button>
                     </div>
                   </form>

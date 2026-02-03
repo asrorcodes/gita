@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { isAuthenticated, logout } from "@/shared/lib/auth";
 import { useAuthStore } from "@/app/login/slices/authSlice";
 import { useOpenSidebar } from "@/app/dashboard/DashboardLayoutContext";
@@ -10,23 +11,76 @@ import Link from "next/link";
 import { groupsApi } from "@/shared/api/groupsApi";
 import { coursesApi } from "@/shared/api/coursesApi";
 import { teachersApi } from "@/shared/api/teachersApi";
+import { queryKeys } from "@/shared/query-keys";
 import type { ApiGroup, ApiCourse, ApiTeacher } from "@/shared/types/api";
 
 export default function GroupsManagementPage() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const openSidebar = useOpenSidebar();
   const [mounted, setMounted] = useState(false);
-  const [groups, setGroups] = useState<ApiGroup[]>([]);
-  const [courses, setCourses] = useState<ApiCourse[]>([]);
-  const [teachers, setTeachers] = useState<ApiTeacher[]>([]);
-  const [loading, setLoading] = useState(true);
   const [formOpen, setFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [name, setName] = useState("");
   const [courseId, setCourseId] = useState<number | "">("");
   const [teacherId, setTeacherId] = useState<number | "">("");
-  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+
+  const { data: groups = [], isLoading: loading } = useQuery({
+    queryKey: queryKeys.groups(),
+    queryFn: async () => {
+      const res = await groupsApi.getList();
+      return res.data.data ?? [];
+    },
+  });
+
+  const { data: courses = [] } = useQuery({
+    queryKey: queryKeys.courses,
+    queryFn: async () => {
+      const res = await coursesApi.getList();
+      return res.data.data ?? [];
+    },
+  });
+
+  const { data: teachers = [] } = useQuery({
+    queryKey: queryKeys.teachers,
+    queryFn: async () => {
+      const res = await teachersApi.getList();
+      return res.data.data ?? [];
+    },
+  });
+
+  const saveGroupMutation = useMutation({
+    mutationFn: async ({
+      id,
+      payload,
+    }: {
+      id: number | null;
+      payload: { name: string; courseId: number; teacherId: number };
+    }) => {
+      if (id != null) return groupsApi.update(id, payload);
+      return groupsApi.create(payload);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.groups() });
+      setFormOpen(false);
+    },
+    onError: (err: unknown) => {
+      const msg =
+        err && typeof err === "object" && "response" in err
+          ? (err as { response?: { data?: { message?: string } } }).response?.data
+              ?.message
+          : null;
+      setError(msg ?? "Xatolik yuz berdi");
+    },
+  });
+
+  const deleteGroupMutation = useMutation({
+    mutationFn: (id: number) => groupsApi.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.groups() });
+    },
+  });
 
   useEffect(() => {
     setMounted(true);
@@ -34,34 +88,6 @@ export default function GroupsManagementPage() {
       router.push("/login");
     }
   }, [router]);
-
-  const loadGroups = () => {
-    groupsApi
-      .getList()
-      .then((res) => setGroups(res.data.data ?? []))
-      .catch(() => setGroups([]))
-      .finally(() => setLoading(false));
-  };
-
-  const loadCourses = () => {
-    coursesApi
-      .getList()
-      .then((res) => setCourses(res.data.data ?? []))
-      .catch(() => setCourses([]));
-  };
-
-  const loadTeachers = () => {
-    teachersApi
-      .getList()
-      .then((res) => setTeachers(res.data.data ?? []))
-      .catch(() => setTeachers([]));
-  };
-
-  useEffect(() => {
-    loadGroups();
-    loadCourses();
-    loadTeachers();
-  }, []);
 
   const clearAuth = useAuthStore((s) => s.clearAuth);
   const handleLogout = () => {
@@ -88,50 +114,28 @@ export default function GroupsManagementPage() {
     setFormOpen(true);
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     if (!name.trim() || courseId === "" || teacherId === "") {
       setError("Barcha maydonlarni to'ldiring");
       return;
     }
-    setSubmitting(true);
-    try {
-      if (editingId != null) {
-        await groupsApi.update(editingId, {
-          name: name.trim(),
-          courseId: courseId as number,
-          teacherId: teacherId as number,
-        });
-      } else {
-        await groupsApi.create({
-          name: name.trim(),
-          courseId: courseId as number,
-          teacherId: teacherId as number,
-        });
-      }
-      loadGroups();
-      setFormOpen(false);
-    } catch (err: unknown) {
-      const msg =
-        err && typeof err === "object" && "response" in err
-          ? (err as { response?: { data?: { message?: string } } }).response?.data
-              ?.message
-          : null;
-      setError(msg ?? "Xatolik yuz berdi");
-    } finally {
-      setSubmitting(false);
-    }
+    saveGroupMutation.mutate({
+      id: editingId,
+      payload: {
+        name: name.trim(),
+        courseId: courseId as number,
+        teacherId: teacherId as number,
+      },
+    });
   };
 
-  const handleDelete = async (id: number) => {
+  const handleDelete = (id: number) => {
     if (!confirm("Guruhni o'chirishni xohlaysizmi?")) return;
-    try {
-      await groupsApi.delete(id);
-      loadGroups();
-    } catch {
-      alert("O'chirib bo'lmadi");
-    }
+    deleteGroupMutation.mutate(id, {
+      onError: () => alert("O'chirib bo'lmadi"),
+    });
   };
 
   if (!mounted) return null;
@@ -309,10 +313,10 @@ export default function GroupsManagementPage() {
                       </button>
                       <button
                         type="submit"
-                        disabled={submitting}
+                        disabled={saveGroupMutation.isPending}
                         className="flex-1 px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium disabled:opacity-60"
                       >
-                        {submitting ? "Saqlanmoqda..." : editingId != null ? "Saqlash" : "Qo'shish"}
+                        {saveGroupMutation.isPending ? "Saqlanmoqda..." : editingId != null ? "Saqlash" : "Qo'shish"}
                       </button>
                     </div>
                   </form>
