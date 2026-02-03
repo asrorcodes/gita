@@ -1,6 +1,8 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from "axios";
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://89.117.53.108:8081/v1";
+// Production (Vercel): use same-origin proxy to avoid CORS / strict-origin. Set NEXT_PUBLIC_API_URL=/api/v1
+const BASE_URL =
+  process.env.NEXT_PUBLIC_API_URL ?? "http://89.117.53.108:8081/v1";
 
 export const api = axios.create({
   baseURL: BASE_URL,
