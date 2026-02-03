@@ -17,7 +17,7 @@ export const lessonsApi = {
     api.post<{ data: ApiLesson }>(LESSONS_BASE, payload),
 
   update: (id: number, payload: Partial<ApiLessonCreateRequest>) =>
-    api.patch<{ data: ApiLesson }>(`${LESSONS_BASE}/${id}`, payload),
+    api.put<{ data: ApiLesson }>(`${LESSONS_BASE}/${id}`, payload),
 
   delete: (id: number) => api.delete(`${LESSONS_BASE}/${id}`),
 };

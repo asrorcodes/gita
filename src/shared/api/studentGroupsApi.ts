@@ -17,7 +17,7 @@ export const studentGroupsApi = {
     api.post<{ data: ApiStudentGroup }>(STUDENT_GROUPS_BASE, payload),
 
   update: (id: number, payload: Partial<ApiStudentGroupCreateRequest>) =>
-    api.patch<{ data: ApiStudentGroup }>(`${STUDENT_GROUPS_BASE}/${id}`, payload),
+    api.put<{ data: ApiStudentGroup }>(`${STUDENT_GROUPS_BASE}/${id}`, payload),
 
   delete: (id: number) => api.delete(`${STUDENT_GROUPS_BASE}/${id}`),
 };

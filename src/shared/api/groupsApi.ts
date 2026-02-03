@@ -17,7 +17,7 @@ export const groupsApi = {
     api.post<{ data: ApiGroup }>(GROUPS_BASE, payload),
 
   update: (id: number, payload: Partial<ApiGroupCreateRequest>) =>
-    api.patch<{ data: ApiGroup }>(`${GROUPS_BASE}/${id}`, payload),
+    api.put<{ data: ApiGroup }>(`${GROUPS_BASE}/${id}`, payload),
 
   delete: (id: number) => api.delete(`${GROUPS_BASE}/${id}`),
 };

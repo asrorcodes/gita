@@ -17,7 +17,7 @@ export const studentsApi = {
     api.post<{ data: ApiStudent }>(STUDENTS_BASE, payload),
 
   update: (id: number, payload: Partial<ApiStudentCreateRequest>) =>
-    api.patch<{ data: ApiStudent }>(`${STUDENTS_BASE}/${id}`, payload),
+    api.put<{ data: ApiStudent }>(`${STUDENTS_BASE}/${id}`, payload),
 
   delete: (id: number) => api.delete(`${STUDENTS_BASE}/${id}`),
 };

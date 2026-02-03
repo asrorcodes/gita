@@ -14,7 +14,7 @@ export const coursesApi = {
     api.post<{ data: ApiCourse }>(COURSES_BASE, payload),
 
   update: (id: number, payload: Partial<ApiCourseCreateRequest>) =>
-    api.patch<{ data: ApiCourse }>(`${COURSES_BASE}/${id}`, payload),
+    api.put<{ data: ApiCourse }>(`${COURSES_BASE}/${id}`, payload),
 
   delete: (id: number) => api.delete(`${COURSES_BASE}/${id}`),
 };

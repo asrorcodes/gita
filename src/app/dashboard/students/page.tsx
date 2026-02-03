@@ -6,7 +6,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { isAuthenticated, logout } from "@/shared/lib/auth";
 import { useAuthStore } from "@/app/login/slices/authSlice";
 import { useOpenSidebar } from "@/app/dashboard/DashboardLayoutContext";
-import { LogOut, Menu, ArrowLeft, Plus, UserPlus, X } from "lucide-react";
+import { LogOut, Menu, ArrowLeft, Plus, UserPlus, X, Pencil, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { studentsApi } from "@/shared/api/studentsApi";
 import { groupsApi } from "@/shared/api/groupsApi";
@@ -38,6 +38,7 @@ export default function StudentsPage() {
   const openSidebar = useOpenSidebar();
   const [mounted, setMounted] = useState(false);
   const [addModalOpen, setAddModalOpen] = useState(false);
+  const [editModalStudent, setEditModalStudent] = useState<ApiStudent | null>(null);
   const [assignModalStudent, setAssignModalStudent] = useState<ApiStudent | null>(null);
   const [assignGroupId, setAssignGroupId] = useState<string>("");
   const [assignError, setAssignError] = useState("");
@@ -108,6 +109,14 @@ export default function StudentsPage() {
     },
   });
 
+  const deleteStudentMutation = useMutation({
+    mutationFn: (id: number) => studentsApi.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.students() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.studentGroups() });
+    },
+  });
+
   const ungroupedStudents = allStudents.filter(
     (s) => !assignments.some((a) => a.studentId === s.id)
   );
@@ -136,6 +145,13 @@ export default function StudentsPage() {
     setAssignModalStudent(null);
     setAssignGroupId("");
     setAssignError("");
+  };
+
+  const handleDeleteStudent = (student: ApiStudent) => {
+    if (!confirm(`"${student.firstName} ${student.lastName}" o'quvchisini o'chirishni xohlaysizmi?`)) return;
+    deleteStudentMutation.mutate(student.id, {
+      onError: () => alert("O'chirib bo'lmadi"),
+    });
   };
 
   const handleAssignSubmit = (e: React.FormEvent) => {
@@ -230,14 +246,33 @@ export default function StudentsPage() {
                           {student.phone} · {student.status}
                         </p>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => openAssignModal(student)}
-                        className="flex-shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium transition-colors"
-                      >
-                        <UserPlus className="w-4 h-4" />
-                        Guruhga biriktirish
-                      </button>
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => setEditModalStudent(student)}
+                          className="p-1.5 text-slate-600 hover:bg-slate-200 rounded-lg transition-colors"
+                          title="Tahrirlash"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteStudent(student)}
+                          disabled={deleteStudentMutation.isPending}
+                          className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
+                          title="O'chirish"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openAssignModal(student)}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium transition-colors"
+                        >
+                          <UserPlus className="w-4 h-4" />
+                          Guruhga biriktirish
+                        </button>
+                      </div>
                     </div>
                   ))
                 )}
@@ -258,6 +293,28 @@ export default function StudentsPage() {
           >
             <AddStudentForm
               onClose={() => setAddModalOpen(false)}
+              onAdd={() => {
+                queryClient.invalidateQueries({ queryKey: queryKeys.students() });
+              }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Modal: O'quvchini tahrirlash */}
+      {editModalStudent && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
+          onClick={() => setEditModalStudent(null)}
+        >
+          <div
+            className="bg-white rounded-lg shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <AddStudentForm
+              key={editModalStudent.id}
+              initialStudent={editModalStudent}
+              onClose={() => setEditModalStudent(null)}
               onAdd={() => {
                 queryClient.invalidateQueries({ queryKey: queryKeys.students() });
               }}
